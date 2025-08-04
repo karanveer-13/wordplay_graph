@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Word Graph Explorer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.26.0/cytoscape.min.js"></script>
+    <!-- Optional: Add layouts like cola or dagre if needed (uncomment and add script tags) -->
+    <!-- <script src="https://cdn.jsdelivr.net/npm/webcola@3.4.0/WebCola/cola.min.js"></script> -->
+    <!-- <script src="https://cdn.jsdelivr.net/npm/cytoscape-cola@2.5.1/cytoscape-cola.min.js"></script> -->
+    <!-- <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script> -->
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0a0f;
+            color: #ffffff;
+            overflow: hidden; /* Prevent body scroll, let graph handle it */
+            user-select: none;
+        }
+        #app {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        #cy {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at 50% 50%, #1a1a2e 0%, #0a0a0f 100%);
+        }
+        /* Top Navigation */
+        .top-nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: rgba(10, 10, 15, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            z-index: 1000;
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 18px;
+            font-weight: 600;
+            color: #64ffda;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .logo:hover {
+            transform: scale(1.05);
+            text-shadow: 0 0 20px rgba(100, 255, 218, 0.5);
+        }
+        .logo::before {
+            content: "◇";
+            font-size: 24px;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+        .breadcrumb-item {
+            padding: 4px 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .breadcrumb-item:hover {
+            background: rgba(100, 255, 218, 0.2);
+            color: #64ffda;
+        }
+        .breadcrumb-separator {
+            color: rgba(255, 255, 255, 0.3);
+        }
+        /* Sidebar */
+        .sidebar {
+            position: fixed;
+            top: 60px;
+            right: -350px;
+            width: 350px;
+            height: calc(100vh - 60px);
+            background: rgba(10, 10, 15, 0.9);
+            backdrop-filter: blur(20px);
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            transition: right 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 999;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column; /* Ensure content fills available space */
+        }
+        .sidebar.open {
+            right: 0;
+        }
+        .sidebar-toggle {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            background: rgba(100, 255, 218, 0.2);
+            border: 1px solid rgba(100, 255, 218, 0.3);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            z-index: 1001;
+            backdrop-filter: blur(10px);
+        }
+        .sidebar-toggle:hover {
+            background: rgba(100, 255, 218, 0.3);
+            transform: scale(1.1);
+            box-shadow: 0 0 20px rgba(100, 255, 218, 0.3);
+        }
+        .sidebar-content {
+            padding: 20px;
+            flex-grow: 1; /* Allow content to expand */
+            overflow-y: auto; /* Scroll content if it overflows the sidebar */
+        }
+        .control-group {
+            margin-bottom: 30px;
+        }
+        .control-group h3 {
+            color: #64ffda;
+            font-size: 16px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .control-group h3::before {
+            content: "▸";
+            font-size: 12px;
+        }
+        /* Custom File Input */
+        .file-input-wrapper {
+            position: relative;
+            margin-bottom: 15px;
+        }
+        .file-input {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+        .file-input-label {
+            display: block;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px dashed rgba(100, 255, 218, 0.3);
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .file-input-label:hover {
+            border-color: rgba(100, 255, 218, 0.6);
+            background: rgba(100, 255, 218, 0.1);
+        }
+        /* Slider */
+        .slider-container {
+            margin-bottom: 15px;
+        }
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.8);
+        }
+        .slider {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            outline: none;
+            appearance: none;
+            cursor: pointer;
+        }
+        .slider::-webkit-slider-thumb {
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #64ffda;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(100, 255, 218, 0.5);
+            transition: all 0.3s ease;
+        }
+        .slider::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            box-shadow: 0 0 20px rgba(100, 255, 218, 0.8);
+        }
+        .slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            background: #64ffda;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 0 10px rgba(100, 255, 218, 0.5);
+        }
+        /* Search Input */
+        .search-input {
+            width: 100%;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+        }
+        .search-input:focus {
+            outline: none;
+            border-color: #64ffda;
+            box-shadow: 0 0 20px rgba(100, 255, 218, 0.2);
+        }
+        .search-input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+        /* Buttons */
+        .btn {
+            width: 100%;
+            padding: 10px;
+            background: rgba(100, 255, 218, 0.1);
+            border: 1px solid rgba(100, 255, 218, 0.3);
+            border-radius: 6px;
+            color: #64ffda;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 10px;
+        }
+        .btn:hover {
+            background: rgba(100, 255, 218, 0.2);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(100, 255, 218, 0.2);
+        }
+        .btn-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        .btn-grid .btn {
+            margin-bottom: 0;
+            font-size: 12px;
+            padding: 8px;
+        }
+        /* Stats */
+        .stats {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .stat-value {
+            color: #64ffda;
+            font-weight: 600;
+        }
+        /* Node Info */
+        .node-info {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-top: 20px;
+        }
+        .node-connections {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+        .connection-item {
+            padding: 4px 8px;
+            margin: 2px 0;
+            background: rgba(100, 255, 218, 0.1);
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .connection-item:hover {
+            background: rgba(100, 255, 218, 0.2);
+            transform: translateX(5px);
+        }
+        /* Tooltip */
+        .tooltip {
+            position: absolute;
+            background: rgba(10, 10, 15, 0.95);
+            border: 1px solid rgba(100, 255, 218, 0.3);
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 12px;
+            z-index: 2000;
+            pointer-events: none;
+            backdrop-filter: blur(10px);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .tooltip.show {
+            opacity: 1;
+        }
+        /* Loading */
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 3000;
+        }
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(100, 255, 218, 0.3);
+            border-top: 3px solid #64ffda;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Notification */
+        .notification {
+            position: fixed;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 20px;
+            color: white;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 3000;
+            backdrop-filter: blur(10px);
+            animation: slideDown 0.3s ease, slideUp 0.3s ease 2.7s forwards; /* Slide down, then up after delay */
+        }
+        .notification.info {
+            background: rgba(100, 255, 218, 0.9);
+        }
+        .notification.error {
+             background: rgba(255, 107, 107, 0.9);
+        }
+        @keyframes slideDown {
+            from { transform: translate(-50%, -20px); opacity: 0; }
+            to { transform: translate(-50%, 0); opacity: 1; }
+        }
+        @keyframes slideUp {
+            from { transform: translate(-50%, 0); opacity: 1; }
+            to { transform: translate(-50%, -20px); opacity: 0; }
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 100vw;
+                right: -100vw;
+            }
+            .sidebar-toggle {
+                right: 15px;
+                top: 75px;
+                width: 45px;
+                height: 45px;
+            }
+            .top-nav {
+                padding: 0 15px;
+            }
+            .breadcrumb {
+                display: none; /* Hide breadcrumb on mobile */
+            }
+            .btn-grid {
+                 grid-template-columns: 1fr 1fr 1fr; /* 3 columns on mobile */
+            }
+        }
+        @media (max-width: 480px) {
+            .btn-grid {
+                 grid-template-columns: 1fr 1fr; /* 2 columns on very small screens */
+            }
+            .sidebar-content {
+                padding: 15px; /* Reduce padding on small screens */
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Top Navigation -->
+        <div class="top-nav">
+            <div class="logo" onclick="resetView()">
+                Word Graph Explorer
+            </div>
+            <div class="breadcrumb" id="breadcrumb">
+                <div class="breadcrumb-item">Graph</div>
+            </div>
+        </div>
+        <!-- Sidebar Toggle -->
+        <div class="sidebar-toggle" onclick="toggleSidebar()">
+            <span id="toggleIcon">⚙</span>
+        </div>
+        <!-- Sidebar -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-content">
+                <div class="control-group">
+                    <h3>Load Data</h3>
+                    <div class="file-input-wrapper">
+                        <input type="file" id="fileInput" class="file-input" accept=".txt">
+                        <label for="fileInput" class="file-input-label">
+                            📁 Upload your own  file
+                        </label>
+                    </div>
+                    <button class="btn" id="autoLoadBtn" onclick="autoLoadWords()">⬇ Auto-load words5000_connected.txt</button>
+                </div>
+                <div class="control-group">
+                    <h3>Word Count</h3>
+                    <div class="slider-container">
+                        <div class="slider-label">
+                            <span>Words to simulate:</span>
+                            <span id="wordCountValue">500</span>
+                        </div>
+                        <input type="range" id="wordCountSlider" class="slider"
+                               min="50" max="2000" value="500" step="1">
+                    </div>
+                    <button class="btn" onclick="updateGraph()">Update Graph</button>
+                    <p>1841 nodes typically require about 1.5 min to load</p>
+                </div>
+                <div class="control-group">
+                    <h3>Search & Navigate</h3>
+                    <input type="text" id="searchInput" class="search-input"
+                           placeholder="Search for a word...">
+                    <button class="btn" onclick="searchWord()">🔍 Find Word</button>
+                    <button class="btn" onclick="clearHighlight()">✨ Clear Selection</button>
+                </div>
+                <div class="control-group">
+                    <h3>Layout</h3>
+                    <div class="btn-grid">
+                        <button class="btn" onclick="changeLayout('cose')">CoSE</button>
+                        <button class="btn" onclick="changeLayout('circle')">Circle</button>
+                        <button class="btn" onclick="changeLayout('grid')">Grid</button>
+                        <button class="btn" onclick="changeLayout('concentric')">Concentric</button>
+                        <button class="btn" onclick="changeLayout('breadthfirst')">Breadthfirst</button>
+                        <button class="btn" onclick="changeLayout('random')">Random</button>
+                        <!-- Add more layout buttons here if needed -->
+                    </div>
+                </div>
+                <div class="control-group" id="statsGroup" style="display: none;">
+                    <h3>Statistics</h3>
+                    <div class="stats">
+                        <div class="stat-item">
+                            <span>Nodes:</span>
+                            <span class="stat-value" id="nodeCount">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Edges:</span>
+                            <span class="stat-value" id="edgeCount">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Isolated:</span>
+                            <span class="stat-value" id="isolatedCount">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Avg Degree (All):</span>
+                            <span class="stat-value" id="avgDegree">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Components:</span>
+                            <span class="stat-value" id="componentCount">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Largest Component Size:</span>
+                            <span class="stat-value" id="largestComponentSize">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Avg Degree (Largest):</span>
+                            <span class="stat-value" id="avgDegreeLargest">0</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="node-info" id="nodeInfo" style="display: none;">
+                    <h3>🎯 Selected Node</h3>
+                    <div id="nodeDetails"></div>
+                </div>
+            </div>
+        </div>
+        <!-- Main Graph Container -->
+        <div id="cy"></div>
+        <!-- Tooltip -->
+        <div class="tooltip" id="tooltip"></div>
+        <!-- Loading -->
+        <div class="loading" id="loading" style="display: none;">
+            <div class="loading-spinner"></div>
+            <div>Building graph...</div>
+        </div>
+    </div>
+    <script>
+        let cy;
+        let allWords = [];
+        let currentWords = [];
+        let selectedNode = null;
+        let breadcrumbPath = ['Graph'];
+        let componentsData = { componentCount: 0, largestComponentSize: 0, avgDegreeLargest: 0 }; // Store component data
+
+        // Word connection logic - exact match to Java code
+        function isOneLetterChange(fromWord, toWord) {
+            if (fromWord.length !== toWord.length) return false;
+            let differences = 0;
+            for (let i = 0; i < fromWord.length; i++) {
+                if (fromWord[i] !== toWord[i]) {
+                    differences++;
+                    if (differences > 1) return false;
+                }
+            }
+            return differences === 1;
+        }
+        function isOneLetterAdd(fromWord, toWord) {
+            if (toWord.length !== fromWord.length + 1) return false;
+            for (let i = 0; i <= fromWord.length; i++) {
+                if (i < toWord.length) {
+                    const testWord = fromWord.substring(0, i) + toWord[i] + fromWord.substring(i);
+                    if (testWord === toWord) return true;
+                }
+            }
+            return false;
+        }
+        function isOneLetterRemove(fromWord, toWord) {
+            if (fromWord.length !== toWord.length + 1) return false;
+            for (let i = 0; i < fromWord.length; i++) {
+                const testWord = fromWord.substring(0, i) + fromWord.substring(i + 1);
+                if (testWord === toWord) return true;
+            }
+            return false;
+        }
+        function isRearrangement(fromWord, toWord) {
+            if (fromWord.length !== toWord.length) return false;
+            const fromChars = fromWord.split('').sort();
+            const toChars = toWord.split('').sort();
+            return JSON.stringify(fromChars) === JSON.stringify(toChars) && fromWord !== toWord;
+        }
+        function isValidMove(fromWord, toWord) {
+            return isOneLetterChange(fromWord, toWord) ||
+                   isOneLetterAdd(fromWord, toWord) ||
+                   isOneLetterRemove(fromWord, toWord) ||
+                   isRearrangement(fromWord, toWord);
+        }
+
+        // --- New Functions for Component Analysis ---
+        function calculateComponents() {
+            const components = [];
+            const visited = new Set();
+
+            cy.nodes().forEach(node => {
+                if (!visited.has(node.id())) {
+                    const component = [];
+                    const queue = [node];
+                    visited.add(node.id());
+
+                    while (queue.length > 0) {
+                        const currentNode = queue.shift();
+                        component.push(currentNode);
+
+                        currentNode.neighborhood('node').forEach(neighbor => {
+                            if (!visited.has(neighbor.id())) {
+                                visited.add(neighbor.id());
+                                queue.push(neighbor);
+                            }
+                        });
+                    }
+                    components.push(component);
+                }
+            });
+
+            const componentCount = components.length;
+            const largestComponent = components.reduce((largest, comp) => comp.length > largest.length ? comp : largest, []);
+            const largestComponentSize = largestComponent.length;
+
+            let totalDegreeLargest = 0;
+            if (largestComponentSize > 0) {
+                largestComponent.forEach(node => {
+                    totalDegreeLargest += node.degree();
+                });
+            }
+            const avgDegreeLargest = largestComponentSize > 0 ? (totalDegreeLargest / largestComponentSize) : 0;
+
+            componentsData = {
+                componentCount,
+                largestComponentSize,
+                avgDegreeLargest: avgDegreeLargest.toFixed(2)
+            };
+        }
+
+        function updateComponentStats() {
+             document.getElementById('componentCount').textContent = componentsData.componentCount;
+             document.getElementById('largestComponentSize').textContent = componentsData.largestComponentSize;
+             document.getElementById('avgDegreeLargest').textContent = componentsData.avgDegreeLargest;
+        }
+        // --- End New Functions ---
+
+        function initializeCytoscape() {
+            cy = cytoscape({
+                container: document.getElementById('cy'),
+                style: [
+                    {
+                        selector: 'node',
+                        style: {
+                            'background-color': 'data(color)',
+                            'border-width': 2,
+                            'border-color': 'rgba(255, 255, 255, 0.3)',
+                            'label': 'data(id)',
+                            'color': '#ffffff',
+                            'text-valign': 'center',
+                            'text-halign': 'center',
+                            'font-size': '11px',
+                            'font-weight': 'bold',
+                            'width': 'mapData(degree, 0, 20, 25, 80)',
+                            'height': 'mapData(degree, 0, 20, 25, 80)',
+                            'text-outline-width': 1,
+                            'text-outline-color': 'rgba(0, 0, 0, 0.8)',
+                            'transition-property': 'background-color, border-color, width, height, box-shadow',
+                            'transition-duration': '0.4s',
+                            'box-shadow': '0 0 15px rgba(100, 255, 218, 0.3)',
+                            'cursor': 'pointer'
+                        }
+                    },
+                    {
+                        selector: 'node:hover',
+                        style: {
+                            'border-color': '#64ffda',
+                            'border-width': 3,
+                            'box-shadow': '0 0 25px rgba(100, 255, 218, 0.8)',
+                            'z-index': 1000
+                        }
+                    },
+                    {
+                        selector: 'node.highlighted',
+                        style: {
+                            'background-color': '#64ffda',
+                            'border-color': '#4fc3f7',
+                            'border-width': 4,
+                            'box-shadow': '0 0 30px rgba(100, 255, 218, 1)',
+                            'z-index': 1001
+                        }
+                    },
+                    {
+                        selector: 'node.neighbor',
+                        style: {
+                            'background-color': '#ff6b9d',
+                            'border-color': '#f06292',
+                            'border-width': 3,
+                            'box-shadow': '0 0 20px rgba(255, 107, 157, 0.6)'
+                        }
+                    },
+                    {
+                        selector: 'node.focused',
+                        style: {
+                            'background-color': '#ffd93d',
+                            'border-color': '#ffcc02',
+                            'border-width': 4,
+                            'box-shadow': '0 0 35px rgba(255, 217, 61, 0.8)',
+                            'z-index': 1002
+                        }
+                    },
+                    {
+                        selector: 'edge',
+                        style: {
+                            'width': 1,
+                            'line-color': 'rgba(255, 255, 255, 0.2)',
+                            'curve-style': 'bezier',
+                            'transition-property': 'line-color, width, opacity',
+                            'transition-duration': '0.3s',
+                            'opacity': 0.6
+                        }
+                    },
+                    {
+                        selector: 'edge.highlighted',
+                        style: {
+                            'line-color': '#64ffda',
+                            'width': 3,
+                            'opacity': 1
+                        }
+                    },
+                    {
+                        selector: 'edge.focused',
+                        style: {
+                            'line-color': '#ffd93d',
+                            'width': 4,
+                            'opacity': 1
+                        }
+                    }
+                ],
+                layout: {
+                    name: 'cose',
+                    animate: true,
+                    animationDuration: 2000,
+                    animationEasing: 'ease-out-cubic',
+                    nodeRepulsion: 8000000,
+                    nodeOverlap: 20,
+                    idealEdgeLength: 100,
+                    edgeElasticity: 200,
+                    nestingFactor: 5,
+                    gravity: 50,
+                    numIter: 1000,
+                    initialTemp: 200,
+                    coolingFactor: 0.95,
+                    minTemp: 1.0
+                },
+                wheelSensitivity: 0.15,
+                minZoom: 0.05,
+                maxZoom: 10,
+                userPanningEnabled: true,
+                userZoomingEnabled: true,
+                boxSelectionEnabled: false
+            });
+            setupEventListeners();
+        }
+        function setupEventListeners() {
+            // Node click - zoom and focus
+            cy.on('tap', 'node', function(evt) {
+                const node = evt.target;
+                focusOnNode(node);
+                evt.stopPropagation();
+            });
+            // Background click - clear selection
+            cy.on('tap', function(evt) {
+                if (evt.target === cy) {
+                    clearHighlight();
+                    hideNodeInfo();
+                    updateBreadcrumb(['Graph']);
+                }
+            });
+            // Node hover - show tooltip
+            cy.on('mouseover', 'node', function(evt) {
+                const node = evt.target;
+                showTooltip(evt, node);
+            });
+            cy.on('mouseout', 'node', function(evt) {
+                hideTooltip();
+            });
+            // Mouse move for tooltip positioning
+            cy.on('mousemove', function(evt) {
+                if (document.getElementById('tooltip').classList.contains('show')) {
+                    const tooltip = document.getElementById('tooltip');
+                    tooltip.style.left = evt.originalEvent.clientX + 10 + 'px';
+                    tooltip.style.top = evt.originalEvent.clientY - 10 + 'px';
+                }
+            });
+
+            // Handle window resize for responsiveness
+            window.addEventListener('resize', function() {
+                if (cy) {
+                    // Trigger a fit or redraw if needed, Cytoscape usually handles it
+                    // But you can add specific logic here if necessary
+                    // Example: cy.fit(); // Fit all elements on resize
+                    // Or just let Cytoscape handle the container resize
+                }
+            });
+        }
+        function focusOnNode(node) {
+            const word = node.id();
+            // Clear previous highlights
+            clearHighlight();
+            // Highlight the focused node and its neighbors
+            node.addClass('focused');
+            const neighbors = node.neighborhood('node');
+            const edges = node.connectedEdges();
+            neighbors.addClass('neighbor');
+            edges.addClass('focused');
+            // Zoom to the node with animation
+            cy.animate({
+                fit: {
+                    eles: node.neighborhood().union(node),
+                    padding: 100
+                }
+            }, {
+                duration: 800,
+                easing: 'ease-out-cubic'
+            });
+            // Update UI
+            showNodeInfo(node);
+            updateBreadcrumb(['Graph', word]);
+            selectedNode = node;
+        }
+        function showTooltip(evt, node) {
+            const tooltip = document.getElementById('tooltip');
+            const word = node.id();
+            const degree = node.degree();
+            tooltip.innerHTML = `
+                <div><strong>${word}</strong></div>
+                <div>Length: ${word.length}</div>
+                <div>Connections: ${degree}</div>
+                <div style="margin-top: 5px; font-size: 11px; opacity: 0.8;">Click to focus</div>
+            `;
+            tooltip.style.left = evt.originalEvent.clientX + 10 + 'px';
+            tooltip.style.top = evt.originalEvent.clientY - 10 + 'px';
+            tooltip.classList.add('show');
+        }
+        function hideTooltip() {
+            document.getElementById('tooltip').classList.remove('show');
+        }
+        function buildGraph(wordList) {
+            showLoading(true);
+            setTimeout(() => {
+                const nodes = [];
+                const edges = [];
+                // Remove duplicates and convert to lowercase
+                const uniqueWords = [...new Set(wordList.map(w => w.toLowerCase()))];
+                currentWords = uniqueWords;
+                console.log(`Processing ${uniqueWords.length} unique words...`);
+                // Add nodes
+                uniqueWords.forEach(word => {
+                    nodes.push({
+                        data: {
+                            id: word,
+                            degree: 0,
+                            color: getColorByLength(word.length)
+                        }
+                    });
+                });
+                // Add edges
+                let edgeCount = 0;
+                const degreeMap = {};
+                for (let i = 0; i < uniqueWords.length; i++) {
+                    degreeMap[uniqueWords[i]] = 0;
+                    for (let j = i + 1; j < uniqueWords.length; j++) {
+                        if (isValidMove(uniqueWords[i], uniqueWords[j])) {
+                            edges.push({
+                                data: {
+                                    id: `${uniqueWords[i]}-${uniqueWords[j]}`,
+                                    source: uniqueWords[i],
+                                    target: uniqueWords[j]
+                                }
+                            });
+                            degreeMap[uniqueWords[i]]++;
+                            degreeMap[uniqueWords[j]]++;
+                            edgeCount++;
+                        }
+                    }
+                }
+                // Update node degrees
+                nodes.forEach(node => {
+                    node.data.degree = degreeMap[node.data.id];
+                });
+                // Clear and add elements
+                cy.elements().remove();
+                cy.add(nodes);
+                cy.add(edges);
+                // Update statistics
+                updateStats(uniqueWords.length, edgeCount, degreeMap);
+                // Calculate and update component statistics
+                calculateComponents();
+                updateComponentStats();
+                // Apply layout
+                cy.layout({
+                    name: 'cose',
+                    animate: true,
+                    animationDuration: 3000,
+                    animationEasing: 'ease-out-cubic',
+                    nodeRepulsion: 8000000,
+                    idealEdgeLength: 100,
+                    fit: true,
+                    padding: 50
+                }).run();
+                showLoading(false);
+            }, 100);
+        }
+        function getColorByLength(length) {
+            const colors = {
+                1: '#ff6b6b',  // Red
+                2: '#4ecdc4',  // Teal
+                3: '#45b7b8',  // Blue
+                4: '#feca57',  // Yellow
+                5: '#ff9ff3',  // Pink
+                6: '#54a0ff',  // Light blue
+                7: '#5f27cd',  // Purple
+                8: '#00d2d3',  // Cyan
+                9: '#ff9f43',  // Orange
+                10: '#10ac84', // Green
+                11: '#a55eea', // Violet
+                12: '#26de81'  // Mint
+            };
+            return colors[length] || '#6c5ce7';
+        }
+        function updateStats(nodeCount, edgeCount, degreeMap) {
+            // Calculate isolated nodes from the actual graph, not the degree map
+            const isolatedNodes = cy.nodes().filter(node => node.degree() === 0);
+            const isolatedCount = isolatedNodes.length;
+            const avgDegree = edgeCount > 0 ? (edgeCount * 2) / nodeCount : 0;
+            document.getElementById('nodeCount').textContent = nodeCount;
+            document.getElementById('edgeCount').textContent = edgeCount;
+            document.getElementById('isolatedCount').textContent = isolatedCount;
+            document.getElementById('avgDegree').textContent = avgDegree.toFixed(2);
+            document.getElementById('statsGroup').style.display = 'block';
+        }
+        function showNodeInfo(node) {
+            const word = node.id();
+            const degree = node.degree();
+            const neighbors = node.neighborhood('node').map(n => n.id()).sort();
+            const details = `
+                <div class="stat-item">
+                    <span>Word:</span>
+                    <span class="stat-value">${word}</span>
+                </div>
+                <div class="stat-item">
+                    <span>Length:</span>
+                    <span class="stat-value">${word.length}</span>
+                </div>
+                <div class="stat-item">
+                    <span>Connections:</span>
+                    <span class="stat-value">${degree}</span>
+                </div>
+                <div style="margin-top: 15px;">
+                    <strong>Connected Words:</strong>
+                    <div class="node-connections">
+                        ${neighbors.map(n => `<div class="connection-item" onclick="jumpToWord('${n}')">${n}</div>`).join('')}
+                    </div>
+                </div>
+            `;
+            document.getElementById('nodeDetails').innerHTML = details;
+            document.getElementById('nodeInfo').style.display = 'block';
+        }
+        function hideNodeInfo() {
+            document.getElementById('nodeInfo').style.display = 'none';
+        }
+        function jumpToWord(word) {
+            const node = cy.getElementById(word);
+            if (node.length > 0) {
+                focusOnNode(node);
+            }
+        }
+        function searchWord() {
+            const word = document.getElementById('searchInput').value.toLowerCase().trim();
+            if (!word) return;
+            const node = cy.getElementById(word);
+            if (node.length > 0) {
+                focusOnNode(node);
+                document.getElementById('searchInput').value = '';
+            } else {
+                showNotification('Word not found in the current graph!', 'error');
+            }
+        }
+        function clearHighlight() {
+            cy.nodes().removeClass('highlighted neighbor focused');
+            cy.edges().removeClass('highlighted focused');
+            selectedNode = null;
+        }
+        function changeLayout(layoutName) {
+            const layouts = {
+                cose: {
+                    name: 'cose',
+                    animate: true,
+                    animationDuration: 2000,
+                    nodeRepulsion: 8000000,
+                    idealEdgeLength: 100,
+                    fit: true,
+                    padding: 50
+                },
+                circle: {
+                    name: 'circle',
+                    animate: true,
+                    animationDuration: 1500,
+                    fit: true,
+                    padding: 50
+                },
+                grid: {
+                    name: 'grid',
+                    animate: true,
+                    animationDuration: 1500,
+                    fit: true,
+                    padding: 50,
+                    rows: Math.ceil(Math.sqrt(currentWords.length))
+                },
+                concentric: {
+                    name: 'concentric',
+                    animate: true,
+                    animationDuration: 2000,
+                    fit: true,
+                    padding: 50,
+                    concentric: node => node.degree(),
+                    levelWidth: () => 1,
+                    minNodeSpacing: 50
+                },
+                breadthfirst: {
+                    name: 'breadthfirst',
+                    animate: true,
+                    animationDuration: 2000,
+                    fit: true,
+                    padding: 50,
+                    directed: false, // Set based on your graph nature
+                    spacingFactor: 1.2 // Adjust spacing
+                },
+                random: {
+                    name: 'random',
+                    animate: true,
+                    animationDuration: 1000,
+                    fit: true,
+                    padding: 50
+                }
+                // Add more layouts here if needed (e.g., cola, dagre)
+                // Make sure to include their script tags in the head
+            };
+            if (layouts[layoutName]) {
+                cy.layout(layouts[layoutName]).run();
+            } else {
+                 showNotification(`Layout ${layoutName} not configured.`, 'error');
+            }
+        }
+        function resetView() {
+            clearHighlight();
+            hideNodeInfo();
+            updateBreadcrumb(['Graph']);
+            cy.animate({
+                fit: {
+                    eles: cy.elements(),
+                    padding: 50
+                }
+            }, {
+                duration: 1000,
+                easing: 'ease-out-cubic'
+            });
+        }
+        function updateBreadcrumb(path) {
+            breadcrumbPath = path;
+            const breadcrumbEl = document.getElementById('breadcrumb');
+            breadcrumbEl.innerHTML = path.map((item, index) => {
+                const isLast = index === path.length - 1;
+                return `
+                    <div class="breadcrumb-item ${isLast ? 'active' : ''}"
+                         onclick="${index === 0 ? 'resetView()' : `jumpToWord('${item}')`}">
+                        ${item}
+                    </div>
+                    ${!isLast ? '<span class="breadcrumb-separator">→</span>' : ''}
+                `;
+            }).join('');
+        }
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const toggle = document.getElementById('toggleIcon');
+            sidebar.classList.toggle('open');
+            toggle.textContent = sidebar.classList.contains('open') ? '✕' : '⚙';
+        }
+        function updateGraph() {
+            const wordCount = parseInt(document.getElementById('wordCountSlider').value);
+            if (allWords.length === 0) {
+                showNotification('Please load a word file first!', 'error');
+                return;
+            }
+            const selectedWords = allWords.slice(0, wordCount);
+            buildGraph(selectedWords);
+        }
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+        function showNotification(message, type = 'info') {
+            // Create a simple notification system
+            const notification = document.createElement('div');
+            notification.classList.add('notification', type);
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            setTimeout(() => {
+                notification.style.animation = 'slideUp 0.3s ease forwards';
+                setTimeout(() => notification.remove(), 300);
+            }, 3000); // Show for 3 seconds
+        }
+
+        // --- New Function for Auto-Loading ---
+        function autoLoadWords() {
+            const fileName = 'words5000_connected.txt'; // Hardcoded filename
+            showLoading(true);
+            fetch(fileName)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Failed to load ${fileName}: ${response.statusText}`);
+                    }
+                    return response.text();
+                })
+                .then(text => {
+                    const words = text.split('\n')
+                        .map(word => word.trim())
+                        .filter(word => word.length > 0);
+                    if (words.length === 0) {
+                         throw new Error(`${fileName} appears to be empty or contain no valid words.`);
+                    }
+                    allWords = words;
+                    const slider = document.getElementById('wordCountSlider');
+                    slider.max = Math.min(words.length, 2000);
+                    slider.value = Math.min(500, words.length); // Set default to 500 or max if less
+                    document.getElementById('wordCountValue').textContent = slider.value;
+                    showNotification(`Auto-loaded ${words.length} words from ${fileName}!`, 'info');
+                     showLoading(false);
+                    updateGraph(); // Build the graph with the loaded words
+                })
+                .catch(error => {
+                    console.error("Auto-load error:", error);
+                    showLoading(false);
+                    showNotification(error.message || `Could not auto-load ${fileName}. Please check the file exists and is accessible.`, 'error');
+                });
+        }
+        // --- End New Function ---
+
+        // Event Listeners
+        document.getElementById('fileInput').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const words = e.target.result.split('\n') // Handle different line endings
+                        .map(word => word.trim())
+                        .filter(word => word.length > 0);
+                    if (words.length === 0) {
+                         showNotification('The selected file appears to be empty or contain no valid words.', 'error');
+                         return;
+                    }
+                    allWords = words;
+                    // Update slider max value
+                    const slider = document.getElementById('wordCountSlider');
+                    slider.max = Math.min(words.length, 2000);
+                    slider.value = Math.min(500, words.length); // Reset slider to a default or max
+                    document.getElementById('wordCountValue').textContent = slider.value;
+                    showNotification(`Loaded ${words.length} words! Use the slider to select how many to visualize.`, 'info');
+                    // Auto-build with initial word count
+                    updateGraph();
+                };
+                reader.onerror = function(e) {
+                     showNotification('Error reading the selected file.', 'error');
+                }
+                reader.readAsText(file);
+            }
+        });
+        document.getElementById('wordCountSlider').addEventListener('input', function(e) {
+            document.getElementById('wordCountValue').textContent = e.target.value;
+        });
+        document.getElementById('searchInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                searchWord();
+            }
+        });
+
+        // Initialize
+        initializeCytoscape();
+        autoLoadWords();
+
+        // Show initial instruction - Delayed slightly for better UX
+        window.addEventListener('load', function() {
+             setTimeout(() => {
+                showNotification('Load your words5000.txt file or click Auto-load to begin exploring!', 'info');
+            }, 500);
+        });
+
+    </script>
+</body>
+</html>
